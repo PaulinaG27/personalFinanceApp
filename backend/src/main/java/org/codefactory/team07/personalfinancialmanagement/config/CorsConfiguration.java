@@ -22,7 +22,7 @@ public class CorsConfiguration {
 
                 // 👇 ESTO ES LO QUE TE FALTA
                 registry.addMapping("/actuator/**")
-                        .allowedOriginPatterns("http://localhost:*")
+                        .allowedOriginPatterns("http://localhost:*", "https://*.vercel.app")
                         .allowedMethods("*")
                         .allowedHeaders("*");
             }
