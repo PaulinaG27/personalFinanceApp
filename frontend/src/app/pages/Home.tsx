@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Wallet, TrendingUp, Calendar, AlertCircle } from 'lucide-react';
+import { Wallet, TrendingUp, Calendar, AlertCircle, LogOut } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
+import { logout } from '@/app/services/authService';
 
 interface HomeProps {
   onNavigate: (page: string) => void;
@@ -8,11 +9,12 @@ interface HomeProps {
 
 export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const API_BASE_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8081';
 
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const response = await fetch('http://localhost:8080/actuator/health');
+        const response = await fetch(`${API_BASE_URL}/actuator/health`);
         if (response.ok) {
           setBackendStatus('connected');
         }
@@ -24,7 +26,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
     checkBackend();
     const interval = setInterval(checkBackend, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [API_BASE_URL]);
 
   const statusColor = 
     backendStatus === 'connected' ? 'bg-green-500' :
@@ -45,12 +47,25 @@ export const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             <Wallet className="w-8 h-8 text-indigo-600" />
             <h1 className="text-2xl font-bold text-indigo-900">AppFinanzas</h1>
           </div>
-          <Button 
-            onClick={() => onNavigate('expenses')}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
-            Ir a Gastos
-          </Button>
+          <div className="flex items-center gap-4">
+            <Button 
+              onClick={() => onNavigate('expenses')}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Ir a Gastos
+            </Button>
+            <Button
+              onClick={() => {
+                logout();
+                onNavigate('login');
+              }}
+              variant="outline"
+              className="border-red-500 text-red-500 hover:bg-red-50"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Cerrar Sesión
+            </Button>
+          </div>
         </div>
       </nav>
 

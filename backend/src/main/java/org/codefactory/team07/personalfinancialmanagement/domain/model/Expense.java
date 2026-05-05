@@ -1,33 +1,24 @@
 package org.codefactory.team07.personalfinancialmanagement.domain.model;
 
+import lombok.Getter;
 import java.time.LocalDate;
 
-import lombok.Getter;
-
 @Getter
-public class Expense {
-    private final Long id;
-    private final String description;
-    private final double amount;
-    private final Category category;
-    private final LocalDate date;
+public class Expense extends Transaction {
+    private final ExpenseCategory category;
 
-    public Expense(String description, double amount, Category category, LocalDate date) {
-        this(null, description, amount, category, date);
+    public Expense(String description, Double amount, ExpenseCategory category, LocalDate date) {
+        super(description, amount, date, TransactionType.GASTO);
+        this.category = category;
     }
 
-    public Expense(Long id, String description, double amount, Category category, LocalDate date) {
-        if (amount <= 0)
-            throw new IllegalArgumentException("El monto debe ser mayor a 0");
-        if (category == null)
-            throw new IllegalArgumentException("La categoría no es válida");
-        if (date == null)
-            throw new IllegalArgumentException("La fecha es obligatoria");
-
+    public Expense(Long id, String description, Double amount, ExpenseCategory category, LocalDate date) {
+        this(description, amount, category, date);
         this.id = id;
-        this.description = description;
-        this.amount = amount;
-        this.category = category;
-        this.date = date;
+    }
+
+    @Override
+    public String getCategoryName() {
+        return category.name();
     }
 }
