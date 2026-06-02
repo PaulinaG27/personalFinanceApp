@@ -1,25 +1,28 @@
-// Backend API Service - Personal Financial Management
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8081';
-const API_TIMEOUT = 10000;
+import { apiCall } from './authService';
 
 export enum TransactionType {
   GASTO = 'GASTO',
   INGRESO = 'INGRESO'
 }
 
-export enum Category {
-  ALIMENTACION = 'ALIMENTACION',
-  TRANSPORTE = 'TRANSPORTE',
-  VIVIENDA = 'VIVIENDA',
-  ENTRETENIMIENTO = 'ENTRETENIMIENTO',
-  SALUD = 'SALUD',
-  EDUCACION = 'EDUCACION'
-}
+export type ExpenseCategory =
+  | 'ALIMENTACION'
+  | 'TRANSPORTE'
+  | 'VIVIENDA'
+  | 'ENTRETENIMIENTO'
+  | 'SALUD'
+  | 'EDUCACION';
 
-export enum IncomeCategory {
-  INGRESO_FIJO = 'INGRESO_FIJO',
-  INGRESO_EXTRA = 'INGRESO_EXTRA'
+export type IncomeCategory = 'INGRESO_FIJO' | 'INGRESO_EXTRA';
+
+export type Category = ExpenseCategory | IncomeCategory;
+
+export function getAvailableCategories(type: TransactionType): Category[] {
+  if (type === TransactionType.INGRESO) {
+    return ['INGRESO_FIJO', 'INGRESO_EXTRA'];
+  }
+
+  return ['ALIMENTACION', 'TRANSPORTE', 'VIVIENDA', 'ENTRETENIMIENTO', 'SALUD', 'EDUCACION'];
 }
 
 export interface Expense {
@@ -27,8 +30,9 @@ export interface Expense {
   description: string;
   amount: number;
   category: string;
-  date: string; // ISO date string
+  date: string;
   type: TransactionType;
+  userId: number;
 }
 
 export interface ExpenseDTO {
@@ -36,186 +40,154 @@ export interface ExpenseDTO {
   amount: number;
   category: string;
   date: string;
-  type?: TransactionType;
+  type: TransactionType;
   userId: number;
 }
 
-export interface ApiResponse {
+export interface ExpenseResponse {
   message: string;
   success: boolean;
+  data?: Expense;
 }
 
-const BUDGET_LIMIT = 1000.0;
+export interface DashboardSummary {
+  hasData: boolean;
+  totalIncome: number;
+  totalSpent: number;
+  available: number;
+  budgetUsed: number;
+  budgetLimit: number;
+  transactionCount: number;
+  averageTicket: number;
+  periodLabel: string;
+  recentTransactions: any[];
+  expenseCategories: any[];
+  incomeCategories: any[];
+  topExpenseCategory: any;
+  topIncomeCategory: any;
+}
 
-const transactionTypeLabels: Record<TransactionType, string> = {
-  [TransactionType.GASTO]: 'Gasto',
-  [TransactionType.INGRESO]: 'Ingreso'
-};
-
-export const categoryLabels: Record<string, string> = {
-  [Category.ALIMENTACION]: 'Alimentación',
-  [Category.TRANSPORTE]: 'Transporte',
-  [Category.VIVIENDA]: 'Vivienda',
-  [Category.ENTRETENIMIENTO]: 'Entretenimiento',
-  [Category.SALUD]: 'Salud',
-  [Category.EDUCACION]: 'Educación',
-  [IncomeCategory.INGRESO_FIJO]: 'Ingreso fijo',
-  [IncomeCategory.INGRESO_EXTRA]: 'Ingreso extra'
-};
-
+// Mapeo amigable de categorías para las etiquetas visuales
 export function getCategoryLabel(category: string): string {
-  return categoryLabels[category] ?? category;
-}
-
-export function getAvailableCategories(type: TransactionType): string[] {
-  return type === TransactionType.INGRESO
-    ? Object.values(IncomeCategory)
-    : Object.values(Category);
+  const labels: Record<string, string> = {
+    ALIMENTACION: 'Alimentación',
+    TRANSPORTE: 'Transporte',
+    VIVIENDA: 'Vivienda',
+    ENTRETENIMIENTO: 'Entretenimiento',
+    SALUD: 'Salud',
+    EDUCACION: 'Educación',
+    INGRESO_FIJO: 'Ingreso fijo',
+    INGRESO_EXTRA: 'Ingreso extra'
+  };
+  return labels[category.toUpperCase()] || category;
 }
 
 export function getTransactionTypeLabel(type: TransactionType): string {
-  return transactionTypeLabels[type];
+  const labels: Record<TransactionType, string> = {
+    [TransactionType.GASTO]: 'Gasto',
+    [TransactionType.INGRESO]: 'Ingreso',
+  };
+
+  return labels[type] || type;
 }
 
-function validateExpense(dto: ExpenseDTO): void {
-  if (dto.amount <= 0) {
-    throw new Error("El monto debe ser mayor a 0");
-  }
+// --- PETICIONES HTTP USANDO APICALL (INCLUYEN TOKEN AUTOMÁTICAMENTE) ---
 
-  const type = dto.type ?? TransactionType.GASTO;
-
-  if (!dto.category) {
-    throw new Error("La categoría no es válida");
-  }
-
-  if (type === TransactionType.INGRESO) {
-    if (!Object.values(IncomeCategory).includes(dto.category as IncomeCategory)) {
-      throw new Error("La categoría no es válida para un ingreso");
-    }
-  } else if (!Object.values(Category).includes(dto.category as Category)) {
-    throw new Error("La categoría no es válida para un gasto");
-  }
-  
-  if (!dto.date) {
-    throw new Error("La fecha es obligatoria");
-  }
-}
-
-async function apiCall<T>(
-  endpoint: string,
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
-  body?: unknown
-): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT);
-
+export async function registerExpense(dto: ExpenseDTO): Promise<ExpenseResponse> {
   try {
-    const options: RequestInit = {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-    };
-
-    if (body) {
-      options.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || `HTTP ${response.status}`);
-    }
-
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    return await response.json() as T;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function registerExpense(dto: ExpenseDTO): Promise<ApiResponse> {
-  try {
-    validateExpense(dto);
-    const type = dto.type ?? TransactionType.GASTO;
-
-    return await apiCall<ApiResponse>(
-      '/transactions',
-      'POST',
-      {
-        description: dto.description,
-        amount: dto.amount,
-        category: dto.category.toUpperCase(),
-        date: dto.date,
-        type,
-        userId: dto.userId
-      }
-    );
+    return await apiCall<ExpenseResponse>('/transactions', 'POST', dto);
   } catch (error) {
     return {
-      message: `Error: ${error instanceof Error ? error.message : 'Desconocido'}`,
+      message: error instanceof Error ? error.message : 'Error al registrar el movimiento',
       success: false
     };
   }
 }
-export async function getAllExpenses(
-  userId: number,
-  transactionType?: TransactionType,
-  startDate?: string,
-  endDate?: string
-): Promise<Expense[]> {
+
+export async function getAllExpenses(userId: number): Promise<Expense[]> {
   try {
-    let endpoint = `/transactions/history/${userId}`;
-    const params: string[] = [];
-
-    // Solo agregar el tipo si es válido
-    if (transactionType) {
-      params.push(`type=${transactionType}`);
-    }
-
-    if (startDate) params.push(`startDate=${startDate}`);
-    if (endDate) params.push(`endDate=${endDate}`);
-
-    if (params.length) endpoint += `?${params.join('&')}`;
-
-    const expenses = await apiCall<Expense[]>(endpoint, 'GET');
-    return expenses || [];
+    // Ajusta el endpoint aquí si tu backend usa '/expenses/user/' o '/transactions/user/'
+    return await apiCall<Expense[]>(`/transactions/user/${userId}`, 'GET');
   } catch (error) {
-    console.error('Error fetching expenses:', error);
+    console.error('Error en getAllExpenses:', error);
     return [];
   }
 }
 
-export async function getTotalSpent(userId: number): Promise<number> {
-  const expenses = await getAllExpenses(userId, TransactionType.GASTO);
-  return expenses.reduce((total, expense) => total + expense.amount, 0);
-}
-
-export async function getTotalIncome(userId: number): Promise<number> {
-  const expenses = await getAllExpenses(userId, TransactionType.INGRESO);
-  return expenses.reduce((total, expense) => total + expense.amount, 0);
-}
-export async function deleteExpense(id: number): Promise<ApiResponse> {
+export async function deleteExpense(id: number): Promise<{ message: string; success: boolean }> {
   try {
-    const response = await apiCall<ApiResponse>(`/transactions/${id}`, 'DELETE');
-    return response || {
-      message: 'Gasto eliminado correctamente.',
-      success: true
-    };
+    await apiCall<void>(`/transactions/${id}`, 'DELETE');
+    return { message: 'Movimiento eliminado correctamente', success: true };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
     return {
-      message: `Error al eliminar el gasto: ${errorMessage}`,
+      message: error instanceof Error ? error.message : 'No se pudo eliminar el movimiento',
       success: false
     };
   }
 }
 
-export function getBudgetLimit(): number {
-  return BUDGET_LIMIT;
+export async function getDashboardSummary(userId: number): Promise<DashboardSummary | null> {
+  try {
+    // El backend expone el resumen por /dashboard/{userId}
+    return await apiCall<DashboardSummary>(`/dashboard/${userId}`, 'GET');
+  } catch (error) {
+    console.error('Error al obtener el resumen del dashboard:', error);
+    return null;
+  }
+}
+
+export interface BudgetStatusDTO {
+  budget: number;
+  totalIncome: number;
+  spent: number;
+  remaining: number;
+  percentageUsed: number;
+  year: number;
+  month: number;
+}
+
+export interface BudgetDTO {
+  budget: number;
+  year: number;
+  month: number;
+}
+
+interface BudgetResponse {
+  message: string;
+  success: boolean;
+  data?: BudgetDTO;
+}
+
+interface BudgetRequestDTO {
+  userId: number;
+  limit: number;
+}
+
+export async function getBudgetStatus(userId: number): Promise<BudgetStatusDTO | null> {
+  try {
+    return await apiCall<BudgetStatusDTO>(`/transactions/budget-status/${userId}`, 'GET');
+  } catch (error) {
+    console.error('Error al obtener el estado del presupuesto:', error);
+    return null;
+  }
+}
+
+export async function updateBudgetLimit(userId: number, limit: number): Promise<{ success: boolean; message: string; data?: BudgetDTO }> {
+  try {
+    const response = await apiCall<BudgetResponse>('/transactions/budget', 'POST', {
+      userId,
+      limit,
+    } as BudgetRequestDTO);
+
+    return {
+      success: response.success,
+      message: response.message,
+      data: response.data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al actualizar el presupuesto',
+    };
+  }
 }

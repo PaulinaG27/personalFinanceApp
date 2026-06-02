@@ -21,7 +21,6 @@ public class TransactionRepositoryImpl implements TransactionRepository {
     public void save(Transaction transaction, Long userId) {
         TransactionEntity entity = new TransactionEntity();
         
-        // El ID lo genera la base de datos automáticamente
         entity.setDescription(transaction.getDescription());
         entity.setAmount(transaction.getAmount());
         entity.setCategory(transaction.getCategoryName());
@@ -38,6 +37,13 @@ public class TransactionRepositoryImpl implements TransactionRepository {
     }
 
     @Override
+    public void deleteByIdAndUserId(Long id, Long userId) {
+        jpaRepository.findById(id)
+                .filter(entity -> entity.getUserId() != null && entity.getUserId().equals(userId))
+                .ifPresent(jpaRepository::delete);
+    }
+
+    @Override
     public List<Transaction> findAllByUserId(Long userId) {
         return jpaRepository.findByUserId(userId).stream()
                 .map(this::mapToDomain)
@@ -47,6 +53,11 @@ public class TransactionRepositoryImpl implements TransactionRepository {
     @Override
     public Optional<Transaction> findById(Long id) {
         return jpaRepository.findById(id).map(this::mapToDomain);
+    }
+
+    @Override
+    public Optional<Long> findUserIdById(Long id) {
+        return jpaRepository.findById(id).map(TransactionEntity::getUserId);
     }
 
     @Override

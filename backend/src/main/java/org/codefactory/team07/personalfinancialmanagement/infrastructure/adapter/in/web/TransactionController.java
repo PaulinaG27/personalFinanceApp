@@ -1,21 +1,25 @@
 package org.codefactory.team07.personalfinancialmanagement.infrastructure.adapter.in.web;
 
 import lombok.RequiredArgsConstructor;
+import org.codefactory.team07.personalfinancialmanagement.application.exception.TransactionOwnershipException;
 import org.codefactory.team07.personalfinancialmanagement.application.usecase.DeleteTransactionUseCase;
 import org.codefactory.team07.personalfinancialmanagement.application.usecase.GetFilteredTransactionsUseCase;
 import org.codefactory.team07.personalfinancialmanagement.application.usecase.GetTransactionsUseCase;
 import org.codefactory.team07.personalfinancialmanagement.application.usecase.RegisterTransactionUseCase;
 import org.codefactory.team07.personalfinancialmanagement.domain.model.*;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/transactions")
+
 @RequiredArgsConstructor
 public class TransactionController {
 
@@ -25,8 +29,14 @@ public class TransactionController {
     private final GetFilteredTransactionsUseCase getFilteredUseCase;
 
     @PostMapping
-    public ResponseEntity<ApiResponse> register(@RequestBody TransactionDTO dto) {
+    public ResponseEntity<ApiResponse> register(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestBody TransactionDTO dto) {
         try {
+            if (authenticatedUserId != null && dto.getUserId() != null && !authenticatedUserId.equals(dto.getUserId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiResponse("No tienes permiso para registrar transacciones de otro usuario", false));
+            }
+
             Transaction transaction;
             String type = dto.getType().toUpperCase();
             String cleanCategory = dto.getCategory().toUpperCase().trim().replace(" ", "_");
@@ -58,7 +68,13 @@ public class TransactionController {
     }
 
     @GetMapping("/user/{userId}")
-    public ResponseEntity<List<TransactionDTO>> getAllByUserId(@PathVariable Long userId) {
+    public ResponseEntity<List<TransactionDTO>> getAllByUserId(
+            @PathVariable Long userId,
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId) {
+        if (authenticatedUserId != null && !authenticatedUserId.equals(userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         List<TransactionDTO> dtos = getUseCase.execute(userId).stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
@@ -66,10 +82,16 @@ public class TransactionController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse> delete(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse> delete(@PathVariable Long id, @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         try {
-            deleteUseCase.execute(id);
+            if (userId == null) {
+                deleteUseCase.execute(id);
+            } else {
+                deleteUseCase.execute(id, userId);
+            }
             return ResponseEntity.ok(new ApiResponse("Eliminado correctamente", true));
+        } catch (TransactionOwnershipException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiResponse(e.getMessage(), false));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(new ApiResponse("No se pudo eliminar", false));
         }
@@ -78,16 +100,20 @@ public class TransactionController {
     @GetMapping("/history/{userId}")
     public ResponseEntity<List<TransactionDTO>> getHistory(
             @PathVariable Long userId,
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+
+        if (authenticatedUserId != null && !authenticatedUserId.equals(userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         TransactionType transactionType = null;
         if (type != null && !type.isBlank()) {
             try {
                 transactionType = TransactionType.valueOf(type.toUpperCase());
             } catch (IllegalArgumentException e) {
-                // Si el tipo no es válido, ignorar y traer todos
                 transactionType = null;
             }
         }
@@ -106,7 +132,7 @@ public class TransactionController {
         dto.setCategory(transaction.getCategoryName());
         dto.setDate(transaction.getDate());
         dto.setType(transaction.getType().toString());
-        dto.setUserId(null); // No solemos devolver el userId en cada línea del historial
+        dto.setUserId(null);
         return dto;
     }
 }

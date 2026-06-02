@@ -9,12 +9,18 @@ export interface User {
   name: string;
   password?: string;
   createdAt?: string;
+  budgetLimit?: number;
 }
 
 export interface AuthResponse {
   message: string;
   success: boolean;
-  data?: User; // Aquí viene el usuario desde el backend
+  data?: {
+    token: string;
+    id: number;
+    email: string;
+    name: string;
+  };
 }
 
 export interface LoginCredentials {
@@ -29,7 +35,7 @@ export interface RegisterData {
 }
 
 // Helper function for API calls
-async function apiCall<T>(
+export async function apiCall<T>(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
   body?: unknown
@@ -38,11 +44,19 @@ async function apiCall<T>(
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT);
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Inyecta automáticamente el token JWT en cada petición HTTP
+    const token = localStorage.getItem('token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const options: RequestInit = {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       signal: controller.signal,
     };
 
@@ -103,11 +117,13 @@ export async function login(credentials: LoginCredentials): Promise<AuthResponse
       credentials
     );
 
-    // GUARDADO CORRECTO:
-    // Guardamos 'response.data' si existe (el User), de lo contrario caemos en 'response'
-    if (response && response.success) {
-      const userData = response.data || response;
-      localStorage.setItem('user', JSON.stringify(userData));
+    if (response && response.success && response.data) {
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify({
+        id: response.data.id,
+        email: response.data.email,
+        name: response.data.name
+      }));
     }
 
     return response || {
@@ -122,8 +138,22 @@ export async function login(credentials: LoginCredentials): Promise<AuthResponse
   }
 }
 
-export function logout(): void {
+export async function logout(): Promise<void> {
+  const token = localStorage.getItem('token');
+  if (token) {
+    try {
+      // Avisa al backend para que destruya/invalide el token JWT
+      await apiCall<AuthResponse>('/auth/logout', 'POST');
+    } catch (error) {
+      console.error('Error al invalidar el token en el servidor:', error);
+    }
+  }
+  localStorage.removeItem('token');
   localStorage.removeItem('user');
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem('token');
 }
 
 export function getAuthenticatedUser(): User | null {
@@ -136,8 +166,21 @@ export function getAuthenticatedUser(): User | null {
   }
 }
 
+export function updateAuthenticatedUser(partialUser: Partial<User>): User | null {
+  const currentUser = getAuthenticatedUser();
+  if (!currentUser) return null;
+
+  const updatedUser = {
+    ...currentUser,
+    ...partialUser,
+  };
+
+  localStorage.setItem('user', JSON.stringify(updatedUser));
+  return updatedUser;
+}
+
 export function isAuthenticated(): boolean {
-  return getAuthenticatedUser() !== null;
+  return localStorage.getItem('token') !== null;
 }
 
 // Validaciones
